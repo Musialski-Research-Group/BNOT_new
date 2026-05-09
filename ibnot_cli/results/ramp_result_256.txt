@@ -1,6 +1,6 @@
-image_path: ibnot_new/results/linear_ramp_256x256.pgm
-output_path: ibnot_new/results/ramp_result_256.eps
-stats_path: ibnot_new/results/ramp_result_256.txt
+image_path: ibnot_cli/results/linear_ramp_256x256.pgm
+output_path: ibnot_cli/results/ramp_result_256.eps
+stats_path: ibnot_cli/results/ramp_result_256.txt
 weight_solver: newton
 seed: 7
 visible_sites: 256

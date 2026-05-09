@@ -1,6 +1,6 @@
-image_path: ibnot_new/results/uniform_64x64.pgm
-output_path: ibnot_new/results/bluenoise_uniform_256.eps
-stats_path: ibnot_new/results/bluenoise_uniform_256.txt
+image_path: ibnot_cli/results/uniform_64x64.pgm
+output_path: ibnot_cli/results/bluenoise_uniform_256.eps
+stats_path: ibnot_cli/results/bluenoise_uniform_256.txt
 weight_solver: newton
 seed: 7
 visible_sites: 256

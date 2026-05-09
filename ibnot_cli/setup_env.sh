@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BNOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-PREFIX="${BNOT_ROOT}/.conda/ibnot_new"
+BNOT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PREFIX="${BNOT_ROOT}/.conda/ibnot_cli"
 CONDA_EXE="${CONDA_EXE:-$HOME/miniconda3/bin/conda}"
 
 if [[ ! -x "${CONDA_EXE}" ]]; then
