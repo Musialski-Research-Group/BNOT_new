@@ -1,0 +1,15 @@
+image_path: ibnot_new/results/uniform_64x64.pgm
+output_path: ibnot_new/results/bluenoise_uniform_256.eps
+stats_path: ibnot_new/results/bluenoise_uniform_256.txt
+weight_solver: newton
+seed: 7
+visible_sites: 256
+iterations: 2
+energy: -0.1772485121873092
+mean_capacity: 0.99609375
+mean_abs_capacity_error: 4.704880770122107e-07
+max_abs_capacity_error: 7.95526208485775e-06
+rms_abs_capacity_error: 1.039096702846357e-06
+mean_rel_capacity_error: 4.723331282946115e-07
+max_rel_capacity_error: 7.986459191072879e-06
+rms_rel_capacity_error: 1.043171591877127e-06

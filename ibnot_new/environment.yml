@@ -1,0 +1,11 @@
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - cmake
+  - ninja
+  - cxx-compiler
+  - eigen
+  - cgal-cpp
+  - gmp
+  - mpfr

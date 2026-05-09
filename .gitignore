@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+
+ibnot_new/build/
+ibnot_new/.conda/
+ibnot_new/CMakeCache.txt
+ibnot_new/CMakeFiles/
+ibnot_new/Testing/
+ibnot_new/cmake_install.cmake
+ibnot_new/compile_commands.json
+
+*.pyc

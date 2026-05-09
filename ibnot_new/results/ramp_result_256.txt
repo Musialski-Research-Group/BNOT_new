@@ -1,0 +1,15 @@
+image_path: ibnot_new/results/linear_ramp_256x256.pgm
+output_path: ibnot_new/results/ramp_result_256.eps
+stats_path: ibnot_new/results/ramp_result_256.txt
+weight_solver: newton
+seed: 7
+visible_sites: 256
+iterations: 2
+energy: -0.08623553678152263
+mean_capacity: 0.498046875
+mean_abs_capacity_error: 3.807221766911895e-07
+max_abs_capacity_error: 1.908054977634022e-05
+rms_abs_capacity_error: 1.467727378928495e-06
+mean_rel_capacity_error: 7.64430409670153e-07
+max_rel_capacity_error: 3.831075092347526e-05
+rms_rel_capacity_error: 2.946966345142704e-06
