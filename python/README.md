@@ -46,3 +46,7 @@ The wrapper now exposes the main rendering controls used by the notebooks:
 - output render size, via `render_width=` and `render_height=`
 - rendered point size, via `point_radius=`
 - PNG rasterization density, via `dpi=`
+
+The Colab notebook also supports uploading an arbitrary image, converting it to
+grayscale with Pillow, resizing it to the configured mask size, and running the
+same CLI pipeline on that uploaded map.

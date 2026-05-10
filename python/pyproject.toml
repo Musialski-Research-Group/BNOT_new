@@ -18,6 +18,7 @@ notebook = [
   "matplotlib",
   "jupyterlab",
   "ipykernel",
+  "Pillow",
 ]
 
 [tool.setuptools]
