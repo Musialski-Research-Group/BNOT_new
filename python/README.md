@@ -26,6 +26,17 @@ python -m pip install -e "python[notebook]"
 
 Then import `ibnot_cli_wrapper` and call the subprocess helpers.
 
+Canonical interface:
+
+- `InferenceRequest`
+- `NativeConfig`
+- `RenderConfig`
+- `OutputConfig`
+- `run_inference(...) -> InferenceResult`
+
+The legacy helpers (`run_from_image`, `run_from_array`, `run_case`) are still
+available, but they now route through the structured inference interface.
+
 Notebook workflow:
 
 - local notebook: `python/notebooks/bnot_quickstart.ipynb`
@@ -46,6 +57,15 @@ The wrapper now exposes the main rendering controls used by the notebooks:
 - output render size, via `render_width=` and `render_height=`
 - rendered point size, via `point_radius=`
 - PNG rasterization density, via `dpi=`
+
+The structured `InferenceResult` also carries:
+
+- resolved output paths
+- parsed native stats
+- wall-clock timings for PGM writing, native execution, rendering, and total run
+- parsed native stage timings when the native `--timer` path is enabled
+- raw stdout/stderr and the executed command
+- warnings for partially missing optional artifacts
 
 The Colab notebook also supports uploading an arbitrary image, converting it to
 grayscale with Pillow, resizing it to the configured mask size, and running the

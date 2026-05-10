@@ -1,28 +1,118 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import math
-import numpy as np
 import os
+import re
 import shutil
 import subprocess
-from typing import Mapping, Optional, Sequence
+from time import perf_counter
+from typing import Any, Mapping, Optional, Sequence
+
+import numpy as np
 
 
 NumberGrid = Sequence[Sequence[float | int]] | np.ndarray
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+_TIMER_LINE_RE = re.compile(
+    r"(?P<stage>[A-Za-z][A-Za-z0-9_ ]+?)\s+\.\.\.\s+done\s+\((?P<seconds>[0-9eE+.\-]+)\s+s\)"
+)
+
+
+@dataclass(frozen=True)
+class NativeConfig:
+    num_sites: Optional[int] = 1024
+    points_path: Optional[Path | str] = None
+    seed: int = 0
+    max_iters: int = 500
+    max_newton_iters: int = 500
+    step_x: float = 0.0
+    step_w: float = 0.0
+    epsilon: float = 1.0
+    invert: bool = False
+    weight_solver: str = "newton"
+    native_timer: bool = False
+
+
+@dataclass(frozen=True)
+class RenderConfig:
+    enabled: bool = True
+    render_width: Optional[int] = None
+    render_height: Optional[int] = None
+    point_radius: float = 0.002
+    png_enabled: bool = True
+    dpi: int = 300
+    ghostscript: str = "gs"
+
+
+@dataclass(frozen=True)
+class OutputConfig:
+    output_dir: Path | str = Path(".")
+    output_stem: str = "result"
+    keep_pgm: bool = True
+    keep_eps: bool = True
+    keep_stats_txt: bool = True
+
+
+@dataclass(frozen=True)
+class InferenceRequest:
+    image_path: Optional[Path | str] = None
+    image_array: Optional[NumberGrid] = None
+    native: NativeConfig = field(default_factory=NativeConfig)
+    render: RenderConfig = field(default_factory=RenderConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
+    executable: Optional[Path | str] = None
+
+
+@dataclass(frozen=True)
+class ResolvedPaths:
+    pgm_path: Optional[Path] = None
+    dat_path: Optional[Path] = None
+    eps_path: Optional[Path] = None
+    png_path: Optional[Path] = None
+    stats_path: Optional[Path] = None
+
+
+@dataclass(frozen=True)
+class TimingInfo:
+    pgm_write_seconds: float = 0.0
+    native_wall_seconds: float = 0.0
+    render_wall_seconds: float = 0.0
+    total_wall_seconds: float = 0.0
+    native_stage_seconds: dict[str, float] = field(default_factory=dict)
+
 
 @dataclass
-class RunResult:
-    image_path: Path
-    eps_path: Path
-    stats_path: Path
-    png_path: Optional[Path]
-    command: list[str]
+class InferenceResult:
+    request: InferenceRequest
+    resolved_paths: ResolvedPaths
+    stats: Mapping[str, object]
+    timings: TimingInfo
     stdout: str
     stderr: str
-    stats: Mapping[str, object]
+    command: list[str]
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def image_path(self) -> Optional[Path]:
+        return self.resolved_paths.pgm_path
+
+    @property
+    def eps_path(self) -> Optional[Path]:
+        return self.resolved_paths.eps_path
+
+    @property
+    def png_path(self) -> Optional[Path]:
+        return self.resolved_paths.png_path
+
+    @property
+    def stats_path(self) -> Optional[Path]:
+        return self.resolved_paths.stats_path
+
+
+RunResult = InferenceResult
 
 
 def find_default_executable(explicit: Optional[Path | str] = None) -> Path:
@@ -60,7 +150,7 @@ def find_default_executable(explicit: Optional[Path | str] = None) -> Path:
 
 
 def make_uniform(size: int = 512, value: float = 1.0) -> np.ndarray:
-    return np.full((size, size), np.clip(float(value), 0.0, 1.0), dtype=float)
+    return np.full((int(size), int(size)), np.clip(float(value), 0.0, 1.0), dtype=float)
 
 
 def make_linear_ramp(size: int = 512, left: float = 1.0, right: float = 0.0) -> np.ndarray:
@@ -137,6 +227,70 @@ def _coerce_scalar(value: str) -> object:
     return value
 
 
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _parse_native_stage_seconds(stdout: str) -> tuple[dict[str, float], list[str]]:
+    clean_stdout = _strip_ansi(stdout)
+    stage_seconds: dict[str, float] = {}
+    warnings: list[str] = []
+
+    for match in _TIMER_LINE_RE.finditer(clean_stdout):
+        stage = match.group("stage").strip()
+        seconds = float(match.group("seconds"))
+        stage_seconds[stage] = stage_seconds.get(stage, 0.0) + seconds
+
+    if "done (" in clean_stdout and not stage_seconds:
+        warnings.append("native timer output detected but no stage timings were parsed")
+
+    return stage_seconds, warnings
+
+
+def _safe_parse_stats(path: Path) -> tuple[dict[str, object], list[str]]:
+    if not path.exists():
+        return {}, [f"stats file missing: {path}"]
+    try:
+        return parse_stats_file(path), []
+    except Exception as exc:  # pragma: no cover - defensive
+        return {}, [f"failed to parse stats file {path}: {exc}"]
+
+
+def _validate_request(request: InferenceRequest) -> list[str]:
+    warnings: list[str] = []
+
+    if (request.image_path is None) == (request.image_array is None):
+        raise ValueError("provide exactly one of image_path or image_array")
+
+    if request.native.points_path is not None and request.native.num_sites is not None:
+        raise ValueError("provide either native.points_path or native.num_sites, not both")
+    if request.native.points_path is None and request.native.num_sites is None:
+        raise ValueError("provide one of native.points_path or native.num_sites")
+    if request.native.weight_solver not in {"newton", "gd"}:
+        raise ValueError("native.weight_solver must be one of: newton, gd")
+
+    if request.render.render_width is not None and request.render.render_width <= 0:
+        raise ValueError("render.render_width must be positive")
+    if request.render.render_height is not None and request.render.render_height <= 0:
+        raise ValueError("render.render_height must be positive")
+    if (request.render.render_width is None) != (request.render.render_height is None):
+        raise ValueError("render.render_width and render.render_height must be provided together")
+    if request.render.point_radius <= 0.0:
+        raise ValueError("render.point_radius must be positive")
+    if request.render.dpi <= 0:
+        raise ValueError("render.dpi must be positive")
+
+    if not request.render.enabled:
+        if request.render.png_enabled:
+            warnings.append("render.png_enabled ignored because render.enabled is False")
+        if request.render.render_width is not None or request.render.render_height is not None:
+            warnings.append("render_width/render_height ignored because render.enabled is False")
+        if request.render.point_radius != 0.002:
+            warnings.append("point_radius ignored because render.enabled is False")
+
+    return warnings
+
+
 def convert_eps_to_png(
     eps_path: Path | str,
     png_path: Path | str,
@@ -180,6 +334,166 @@ def convert_eps_to_png(
     return png
 
 
+def run_inference(request: InferenceRequest) -> InferenceResult:
+    warnings = _validate_request(request)
+    cli = find_default_executable(request.executable)
+    output_root = Path(request.output.output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    total_start = perf_counter()
+    pgm_write_seconds = 0.0
+    generated_pgm = False
+
+    if request.image_array is not None:
+        pgm_path = output_root / f"{request.output.output_stem}_input.pgm"
+        generated_pgm = True
+        pgm_start = perf_counter()
+        write_pgm(pgm_path, request.image_array)
+        pgm_write_seconds = perf_counter() - pgm_start
+    else:
+        pgm_path = Path(request.image_path).expanduser().resolve()
+        if not pgm_path.exists():
+            raise FileNotFoundError(f"input image not found: {pgm_path}")
+
+    stats_path = output_root / f"{request.output.output_stem}.txt"
+    dat_path: Optional[Path] = None
+    eps_path: Optional[Path] = None
+    png_path: Optional[Path] = None
+
+    if request.render.enabled:
+        eps_path = output_root / f"{request.output.output_stem}.eps"
+        native_output_path = eps_path
+    else:
+        dat_path = output_root / f"{request.output.output_stem}.dat"
+        native_output_path = dat_path
+
+    native_cfg = request.native
+    render_cfg = request.render
+
+    cmd = [
+        str(cli),
+        "--image",
+        str(pgm_path),
+        "--output",
+        str(native_output_path),
+        "--stats",
+        str(stats_path),
+        "--seed",
+        str(native_cfg.seed),
+        "--max-iters",
+        str(native_cfg.max_iters),
+        "--max-newton-iters",
+        str(native_cfg.max_newton_iters),
+        "--step-x",
+        str(native_cfg.step_x),
+        "--step-w",
+        str(native_cfg.step_w),
+        "--epsilon",
+        str(native_cfg.epsilon),
+        "--weight-solver",
+        native_cfg.weight_solver,
+    ]
+
+    if render_cfg.enabled:
+        cmd.extend(["--point-radius", str(render_cfg.point_radius)])
+        if render_cfg.render_width is not None and render_cfg.render_height is not None:
+            cmd.extend(
+                ["--render-width", str(render_cfg.render_width), "--render-height", str(render_cfg.render_height)]
+            )
+
+    if native_cfg.points_path is not None:
+        cmd.extend(["--points", str(Path(native_cfg.points_path))])
+    elif native_cfg.num_sites is not None:
+        cmd.extend(["--num-sites", str(native_cfg.num_sites)])
+    else:  # pragma: no cover - already guarded
+        raise ValueError("provide one of native.points_path or native.num_sites")
+
+    if native_cfg.invert:
+        cmd.append("--invert")
+    if native_cfg.native_timer:
+        cmd.append("--timer")
+
+    native_start = perf_counter()
+    completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    native_wall_seconds = perf_counter() - native_start
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "ibnot_new_cli failed\n"
+            f"command: {' '.join(cmd)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+
+    stats, stats_warnings = _safe_parse_stats(stats_path)
+    warnings.extend(stats_warnings)
+
+    native_stage_seconds: dict[str, float] = {}
+    if native_cfg.native_timer:
+        native_stage_seconds, timer_warnings = _parse_native_stage_seconds(completed.stdout)
+        warnings.extend(timer_warnings)
+
+    render_wall_seconds = 0.0
+    if render_cfg.enabled and render_cfg.png_enabled:
+        assert eps_path is not None
+        png_path = output_root / f"{request.output.output_stem}.png"
+        render_start = perf_counter()
+        try:
+            convert_eps_to_png(
+                eps_path,
+                png_path,
+                ghostscript=render_cfg.ghostscript,
+                width=render_cfg.render_width,
+                height=render_cfg.render_height,
+                dpi=render_cfg.dpi,
+            )
+        except FileNotFoundError as exc:
+            warnings.append(str(exc))
+            png_path = None
+        else:
+            render_wall_seconds = perf_counter() - render_start
+
+    resolved_pgm_path: Optional[Path] = pgm_path
+    resolved_eps_path: Optional[Path] = eps_path
+    resolved_stats_path: Optional[Path] = stats_path
+
+    if generated_pgm and not request.output.keep_pgm and pgm_path.exists():
+        pgm_path.unlink()
+        resolved_pgm_path = None
+
+    if eps_path is not None and not request.output.keep_eps and eps_path.exists():
+        eps_path.unlink()
+        resolved_eps_path = None
+
+    if not request.output.keep_stats_txt and stats_path.exists():
+        stats_path.unlink()
+        resolved_stats_path = None
+
+    total_wall_seconds = perf_counter() - total_start
+
+    return InferenceResult(
+        request=request,
+        resolved_paths=ResolvedPaths(
+            pgm_path=resolved_pgm_path,
+            dat_path=dat_path,
+            eps_path=resolved_eps_path,
+            png_path=png_path,
+            stats_path=resolved_stats_path,
+        ),
+        stats=stats,
+        timings=TimingInfo(
+            pgm_write_seconds=pgm_write_seconds,
+            native_wall_seconds=native_wall_seconds,
+            render_wall_seconds=render_wall_seconds,
+            total_wall_seconds=total_wall_seconds,
+            native_stage_seconds=native_stage_seconds,
+        ),
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+        command=cmd,
+        warnings=warnings,
+    )
+
+
 def run_from_image(
     image_path: Path | str,
     output_dir: Path | str,
@@ -203,97 +517,35 @@ def run_from_image(
     write_png: bool = False,
     ghostscript: str = "gs",
     dpi: int = 300,
-) -> RunResult:
-    cli = find_default_executable(executable)
-    output_root = Path(output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
-
-    if (render_width is None) != (render_height is None):
-        raise ValueError("render_width and render_height must be provided together")
-    if render_width is not None and render_width <= 0:
-        raise ValueError("render_width must be positive")
-    if render_height is not None and render_height <= 0:
-        raise ValueError("render_height must be positive")
-    if point_radius <= 0.0:
-        raise ValueError("point_radius must be positive")
-    if dpi <= 0:
-        raise ValueError("dpi must be positive")
-
-    eps_path = output_root / f"{output_stem}.eps"
-    stats_path = output_root / f"{output_stem}.txt"
-
-    cmd = [
-        str(cli),
-        "--image",
-        str(Path(image_path)),
-        "--output",
-        str(eps_path),
-        "--stats",
-        str(stats_path),
-        "--seed",
-        str(seed),
-        "--max-iters",
-        str(max_iters),
-        "--max-newton-iters",
-        str(max_newton_iters),
-        "--step-x",
-        str(step_x),
-        "--step-w",
-        str(step_w),
-        "--epsilon",
-        str(epsilon),
-        "--point-radius",
-        str(point_radius),
-        "--weight-solver",
-        weight_solver,
-    ]
-
-    if render_width is not None and render_height is not None:
-        cmd.extend(["--render-width", str(render_width), "--render-height", str(render_height)])
-
-    if points_path is not None:
-        cmd.extend(["--points", str(Path(points_path))])
-    elif num_sites is not None:
-        cmd.extend(["--num-sites", str(num_sites)])
-    else:
-        raise ValueError("provide either points_path or num_sites")
-
-    if invert:
-        cmd.append("--invert")
-    if timer:
-        cmd.append("--timer")
-
-    completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "ibnot_new_cli failed\n"
-            f"command: {' '.join(cmd)}\n"
-            f"stdout:\n{completed.stdout}\n"
-            f"stderr:\n{completed.stderr}"
-        )
-
-    png_path: Optional[Path] = None
-    if write_png:
-        png_path = output_root / f"{output_stem}.png"
-        convert_eps_to_png(
-            eps_path,
-            png_path,
-            ghostscript=ghostscript,
-            width=render_width,
-            height=render_height,
+) -> InferenceResult:
+    request = InferenceRequest(
+        image_path=image_path,
+        native=NativeConfig(
+            num_sites=num_sites,
+            points_path=points_path,
+            seed=seed,
+            max_iters=max_iters,
+            max_newton_iters=max_newton_iters,
+            step_x=step_x,
+            step_w=step_w,
+            epsilon=epsilon,
+            invert=invert,
+            weight_solver=weight_solver,
+            native_timer=timer,
+        ),
+        render=RenderConfig(
+            enabled=True,
+            render_width=render_width,
+            render_height=render_height,
+            point_radius=point_radius,
+            png_enabled=write_png,
             dpi=dpi,
-        )
-
-    return RunResult(
-        image_path=Path(image_path),
-        eps_path=eps_path,
-        stats_path=stats_path,
-        png_path=png_path,
-        command=cmd,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
-        stats=parse_stats_file(stats_path),
+            ghostscript=ghostscript,
+        ),
+        output=OutputConfig(output_dir=output_dir, output_stem=output_stem),
+        executable=executable,
     )
+    return run_inference(request)
 
 
 def run_from_array(
@@ -318,34 +570,34 @@ def run_from_array(
     write_png: bool = False,
     ghostscript: str = "gs",
     dpi: int = 300,
-) -> RunResult:
-    output_root = Path(output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
-    pgm_path = output_root / f"{output_stem}_input.pgm"
-    write_pgm(pgm_path, pixels)
-
-    return run_from_image(
-        pgm_path,
-        output_root,
-        output_stem,
+) -> InferenceResult:
+    request = InferenceRequest(
+        image_array=pixels,
+        native=NativeConfig(
+            num_sites=num_sites,
+            seed=seed,
+            max_iters=max_iters,
+            max_newton_iters=max_newton_iters,
+            step_x=step_x,
+            step_w=step_w,
+            epsilon=epsilon,
+            invert=invert,
+            weight_solver=weight_solver,
+            native_timer=timer,
+        ),
+        render=RenderConfig(
+            enabled=True,
+            render_width=render_width,
+            render_height=render_height,
+            point_radius=point_radius,
+            png_enabled=write_png,
+            dpi=dpi,
+            ghostscript=ghostscript,
+        ),
+        output=OutputConfig(output_dir=output_dir, output_stem=output_stem),
         executable=executable,
-        num_sites=num_sites,
-        seed=seed,
-        max_iters=max_iters,
-        max_newton_iters=max_newton_iters,
-        step_x=step_x,
-        step_w=step_w,
-        epsilon=epsilon,
-        render_width=render_width,
-        render_height=render_height,
-        point_radius=point_radius,
-        invert=invert,
-        timer=timer,
-        weight_solver=weight_solver,
-        write_png=write_png,
-        ghostscript=ghostscript,
-        dpi=dpi,
     )
+    return run_inference(request)
 
 
 def run_case(
@@ -370,26 +622,31 @@ def run_case(
     write_png: bool = True,
     ghostscript: str = "gs",
     dpi: int = 300,
-) -> RunResult:
-    return run_from_array(
-        pixels,
-        output_dir,
-        output_stem,
+) -> InferenceResult:
+    request = InferenceRequest(
+        image_array=pixels,
+        native=NativeConfig(
+            num_sites=num_sites,
+            seed=seed,
+            max_iters=max_iters,
+            max_newton_iters=max_newton_iters,
+            step_x=step_x,
+            step_w=step_w,
+            epsilon=epsilon,
+            invert=invert,
+            weight_solver=weight_solver,
+            native_timer=timer,
+        ),
+        render=RenderConfig(
+            enabled=True,
+            render_width=render_width,
+            render_height=render_height,
+            point_radius=point_radius,
+            png_enabled=write_png,
+            dpi=dpi,
+            ghostscript=ghostscript,
+        ),
+        output=OutputConfig(output_dir=output_dir, output_stem=output_stem),
         executable=executable,
-        num_sites=num_sites,
-        seed=seed,
-        max_iters=max_iters,
-        max_newton_iters=max_newton_iters,
-        step_x=step_x,
-        step_w=step_w,
-        epsilon=epsilon,
-        render_width=render_width,
-        render_height=render_height,
-        point_radius=point_radius,
-        invert=invert,
-        timer=timer,
-        weight_solver=weight_solver,
-        write_png=write_png,
-        ghostscript=ghostscript,
-        dpi=dpi,
     )
+    return run_inference(request)
