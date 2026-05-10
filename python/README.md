@@ -28,8 +28,10 @@ Then import `ibnot_cli_wrapper` and call the subprocess helpers.
 
 Notebook workflow:
 
-- notebook path: `python/notebooks/bnot_quickstart.ipynb`
+- local notebook: `python/notebooks/bnot_quickstart.ipynb`
+- Colab notebook: `python/notebooks/bnot_quickstart_colab.ipynb`
 - local generated outputs: `python/notebooks/_generated/`
+- Colab-generated outputs inside the cloned repo: `python/notebooks/_generated_colab/`
 
 The notebook uses the shipped CLI through the wrapper and demonstrates three
 `512x512` fields at `1024` points:

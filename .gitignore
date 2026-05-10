@@ -19,4 +19,5 @@ python/build/
 python/dist/
 python/.pytest_cache/
 python/notebooks/_generated/
+python/notebooks/_generated_colab/
 .ipynb_checkpoints/
