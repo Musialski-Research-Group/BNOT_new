@@ -21,9 +21,12 @@ struct CliOptions
     unsigned seed = 0;
     unsigned max_iters = 500;
     unsigned max_weight_iters = 500;
+    unsigned render_width = 0;
+    unsigned render_height = 0;
     double step_x = 0.0;
     double step_w = 0.0;
     double epsilon = 1.0;
+    double point_radius = 0.002;
     bool invert = false;
     bool timer = false;
 };
@@ -42,6 +45,9 @@ void print_usage(const char* argv0)
         << "  --epsilon VALUE                Optimization tolerance scale (default: 1.0)\n"
         << "  --max-iters N                  Max outer iterations (default: 500)\n"
         << "  --max-newton-iters N           Max inner weight iterations (default: 500)\n"
+        << "  --render-width N               EPS render width in pixels/points (default: 512)\n"
+        << "  --render-height N              EPS render height in pixels/points (default: derived from aspect)\n"
+        << "  --point-radius VALUE           EPS point radius in normalized coordinates (default: 0.002)\n"
         << "  --weight-solver newton|gd      Weight optimizer backend (default: newton)\n"
         << "  --stats path.txt               Optional stats report path\n"
         << "  --timer                        Enable per-stage timing logs\n";
@@ -138,6 +144,16 @@ CliOptions parse_args(int argc, char** argv)
             if (!require_value(argc, argv, i, value)) throw std::runtime_error("--max-newton-iters expects a value");
             options.max_weight_iters = parse_unsigned(value, "--max-newton-iters");
         }
+        else if (arg == "--render-width")
+        {
+            if (!require_value(argc, argv, i, value)) throw std::runtime_error("--render-width expects a value");
+            options.render_width = parse_unsigned(value, "--render-width");
+        }
+        else if (arg == "--render-height")
+        {
+            if (!require_value(argc, argv, i, value)) throw std::runtime_error("--render-height expects a value");
+            options.render_height = parse_unsigned(value, "--render-height");
+        }
         else if (arg == "--step-x")
         {
             if (!require_value(argc, argv, i, value)) throw std::runtime_error("--step-x expects a value");
@@ -152,6 +168,11 @@ CliOptions parse_args(int argc, char** argv)
         {
             if (!require_value(argc, argv, i, value)) throw std::runtime_error("--epsilon expects a value");
             options.epsilon = parse_double(value, "--epsilon");
+        }
+        else if (arg == "--point-radius")
+        {
+            if (!require_value(argc, argv, i, value)) throw std::runtime_error("--point-radius expects a value");
+            options.point_radius = parse_double(value, "--point-radius");
         }
         else if (arg == "--invert")
         {
@@ -180,6 +201,8 @@ CliOptions parse_args(int argc, char** argv)
         throw std::runtime_error("use only one of --points or --num-sites");
     if (options.weight_solver != "newton" && options.weight_solver != "gd")
         throw std::runtime_error("--weight-solver must be one of: newton, gd");
+    if (options.point_radius <= 0.0)
+        throw std::runtime_error("--point-radius must be positive");
 
     return options;
 }
@@ -207,6 +230,9 @@ std::string build_stats_report(const CliOptions& options,
     if (!options.stats_path.empty()) report << "stats_path: " << options.stats_path << '\n';
     report << "weight_solver: " << options.weight_solver << '\n';
     report << "seed: " << options.seed << '\n';
+    report << "render_width: " << scene.get_render_width() << '\n';
+    report << "render_height: " << scene.get_render_height() << '\n';
+    report << "point_radius: " << scene.get_render_point_radius() << '\n';
     report << "visible_sites: " << scene.count_visible_sites() << '\n';
     report << "iterations: " << iters << '\n';
     report << "energy: " << energy << '\n';
@@ -231,6 +257,9 @@ int main(int argc, char** argv)
         Scene scene;
         std::srand(options.seed);
         if (options.timer) scene.toggle_timer();
+        scene.set_render_width(options.render_width);
+        scene.set_render_height(options.render_height);
+        scene.set_render_point_radius(options.point_radius);
 
         scene.load_image(options.image_path);
         if (options.invert) scene.toggle_invert();

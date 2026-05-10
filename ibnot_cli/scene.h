@@ -2,6 +2,7 @@
 #define _SCENE_H_
 
 // STL
+#include <cmath>
 #include <iosfwd>
 #include <map>
 #include <set>
@@ -25,6 +26,10 @@ private:
     std::map<Edge, FT> m_ratio;
     std::vector<double> m_r, m_g, m_b;
     std::vector<Vertex_handle> m_vertices;
+
+    unsigned m_render_width;
+    unsigned m_render_height;
+    double m_render_point_radius;
     
     bool m_timer_on;
     std::vector<double> m_timer;    
@@ -37,6 +42,9 @@ public:
         m_tau = 1.0;
         m_timer_on = false;
         m_fixed_connectivity = false;
+        m_render_width = 0;
+        m_render_height = 0;
+        m_render_point_radius = 0.002;
     }
     
     ~Scene()
@@ -46,6 +54,33 @@ public:
     
     double get_tau() const { return m_tau; }
     void set_tau(double tau) { m_tau = tau; }
+
+    unsigned get_render_width() const
+    {
+        if (m_render_width != 0) return m_render_width;
+        if (!m_domain.is_valid()) return 0;
+        if (m_render_height != 0)
+        {
+            return static_cast<unsigned>(
+                std::llround(double(m_render_height) * double(m_domain.get_width()) / double(m_domain.get_height()))
+            );
+        }
+        return 512;
+    }
+
+    unsigned get_render_height() const
+    {
+        if (m_render_height != 0) return m_render_height;
+        if (!m_domain.is_valid()) return 0;
+        return static_cast<unsigned>(
+            std::llround(double(get_render_width()) * double(m_domain.get_height()) / double(m_domain.get_width()))
+        );
+    }
+    double get_render_point_radius() const { return m_render_point_radius; }
+
+    void set_render_width(unsigned width) { m_render_width = width; }
+    void set_render_height(unsigned height) { m_render_height = height; }
+    void set_render_point_radius(double radius) { m_render_point_radius = radius; }
 
     void toggle_invert() { m_domain.toggle_invert(); }
     

@@ -39,3 +39,10 @@ The notebook uses the shipped CLI through the wrapper and demonstrates three
 - uniform
 - left-to-right linear ramp
 - normalized 2D sine landscape
+
+The wrapper now exposes the main rendering controls used by the notebooks:
+
+- mask size, via the generator helpers such as `make_uniform(size=...)`
+- output render size, via `render_width=` and `render_height=`
+- rendered point size, via `point_radius=`
+- PNG rasterization density, via `dpi=`

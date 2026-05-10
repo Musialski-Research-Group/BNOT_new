@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 
 #include "console_color.h"
 
@@ -126,16 +128,36 @@ void Scene::save_eps(const std::string& filename) const
     double dx = m_domain.get_dx();
     double dy = m_domain.get_dy();
 
-    double scale = 512.0;
-    double radius = 0.002;
+    unsigned image_width = m_domain.get_width();
+    unsigned image_height = m_domain.get_height();
+    if (image_width == 0 || image_height == 0)
+    {
+        throw std::runtime_error("cannot render EPS without a valid loaded image");
+    }
 
-    double wx = dx * scale;
-    double wy = dy * scale;
+    unsigned render_width = get_render_width();
+    unsigned render_height = get_render_height();
 
-    double min_x = 0;
-    double max_x = 2.0 * wx;
-    double min_y = 0;
-    double max_y = 2.0 * wy;
+    if (render_width == 0 || render_height == 0)
+    {
+        throw std::runtime_error("render width and height must be positive");
+    }
+
+    const double image_aspect = double(image_width) / double(image_height);
+    const double render_aspect = double(render_width) / double(render_height);
+    if (std::abs(image_aspect - render_aspect) > 1.0e-9)
+    {
+        throw std::runtime_error("render width/height must preserve the input image aspect ratio");
+    }
+
+    double scale_x = double(render_width) / (2.0 * dx);
+    double scale_y = double(render_height) / (2.0 * dy);
+    double radius = m_render_point_radius;
+
+    double min_x = 0.0;
+    double max_x = double(render_width);
+    double min_y = 0.0;
+    double max_y = double(render_height);
 
     std::ofstream ofs(filename.c_str());
     ofs.precision(20);
@@ -150,7 +172,7 @@ void Scene::save_eps(const std::string& filename) const
     
     ofs << "/radius { " << radius << " } def\n";
     ofs << "/p { radius 0 360 arc closepath fill stroke } def\n";
-    ofs << "gsave " << scale << " " << scale << " scale\n";
+    ofs << "gsave " << scale_x << " " << scale_y << " scale\n";
     ofs << "0 0 0 setrgbcolor" << std::endl;
 
     for (unsigned i = 0; i < m_vertices.size(); ++i) 

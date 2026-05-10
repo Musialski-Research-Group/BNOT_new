@@ -141,6 +141,8 @@ def convert_eps_to_png(
     eps_path: Path | str,
     png_path: Path | str,
     ghostscript: str = "gs",
+    width: Optional[int] = None,
+    height: Optional[int] = None,
     dpi: int = 300,
 ) -> Path:
     gs = shutil.which(ghostscript)
@@ -151,6 +153,15 @@ def convert_eps_to_png(
     png = Path(png_path)
     png.parent.mkdir(parents=True, exist_ok=True)
 
+    if (width is None) != (height is None):
+        raise ValueError("width and height must be provided together")
+    if width is not None and width <= 0:
+        raise ValueError("width must be positive")
+    if height is not None and height <= 0:
+        raise ValueError("height must be positive")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+
     cmd = [
         gs,
         "-dSAFER",
@@ -158,10 +169,13 @@ def convert_eps_to_png(
         "-dNOPAUSE",
         "-dEPSCrop",
         "-sDEVICE=png16m",
-        f"-r{dpi}",
         f"-sOutputFile={png}",
-        str(eps),
     ]
+    if width is not None and height is not None:
+        cmd.append(f"-g{width}x{height}")
+    else:
+        cmd.append(f"-r{dpi}")
+    cmd.append(str(eps))
     subprocess.run(cmd, check=True, capture_output=True, text=True)
     return png
 
@@ -180,15 +194,30 @@ def run_from_image(
     step_x: float = 0.0,
     step_w: float = 0.0,
     epsilon: float = 1.0,
+    render_width: Optional[int] = None,
+    render_height: Optional[int] = None,
+    point_radius: float = 0.002,
     invert: bool = False,
     timer: bool = False,
     weight_solver: str = "newton",
     write_png: bool = False,
     ghostscript: str = "gs",
+    dpi: int = 300,
 ) -> RunResult:
     cli = find_default_executable(executable)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
+
+    if (render_width is None) != (render_height is None):
+        raise ValueError("render_width and render_height must be provided together")
+    if render_width is not None and render_width <= 0:
+        raise ValueError("render_width must be positive")
+    if render_height is not None and render_height <= 0:
+        raise ValueError("render_height must be positive")
+    if point_radius <= 0.0:
+        raise ValueError("point_radius must be positive")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
 
     eps_path = output_root / f"{output_stem}.eps"
     stats_path = output_root / f"{output_stem}.txt"
@@ -213,9 +242,14 @@ def run_from_image(
         str(step_w),
         "--epsilon",
         str(epsilon),
+        "--point-radius",
+        str(point_radius),
         "--weight-solver",
         weight_solver,
     ]
+
+    if render_width is not None and render_height is not None:
+        cmd.extend(["--render-width", str(render_width), "--render-height", str(render_height)])
 
     if points_path is not None:
         cmd.extend(["--points", str(Path(points_path))])
@@ -241,7 +275,14 @@ def run_from_image(
     png_path: Optional[Path] = None
     if write_png:
         png_path = output_root / f"{output_stem}.png"
-        convert_eps_to_png(eps_path, png_path, ghostscript=ghostscript)
+        convert_eps_to_png(
+            eps_path,
+            png_path,
+            ghostscript=ghostscript,
+            width=render_width,
+            height=render_height,
+            dpi=dpi,
+        )
 
     return RunResult(
         image_path=Path(image_path),
@@ -268,11 +309,15 @@ def run_from_array(
     step_x: float = 0.0,
     step_w: float = 0.0,
     epsilon: float = 1.0,
+    render_width: Optional[int] = None,
+    render_height: Optional[int] = None,
+    point_radius: float = 0.002,
     invert: bool = False,
     timer: bool = False,
     weight_solver: str = "newton",
     write_png: bool = False,
     ghostscript: str = "gs",
+    dpi: int = 300,
 ) -> RunResult:
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -291,11 +336,15 @@ def run_from_array(
         step_x=step_x,
         step_w=step_w,
         epsilon=epsilon,
+        render_width=render_width,
+        render_height=render_height,
+        point_radius=point_radius,
         invert=invert,
         timer=timer,
         weight_solver=weight_solver,
         write_png=write_png,
         ghostscript=ghostscript,
+        dpi=dpi,
     )
 
 
@@ -312,11 +361,15 @@ def run_case(
     step_x: float = 0.0,
     step_w: float = 0.0,
     epsilon: float = 1.0,
+    render_width: Optional[int] = None,
+    render_height: Optional[int] = None,
+    point_radius: float = 0.002,
     invert: bool = False,
     timer: bool = False,
     weight_solver: str = "newton",
     write_png: bool = True,
     ghostscript: str = "gs",
+    dpi: int = 300,
 ) -> RunResult:
     return run_from_array(
         pixels,
@@ -330,9 +383,13 @@ def run_case(
         step_x=step_x,
         step_w=step_w,
         epsilon=epsilon,
+        render_width=render_width,
+        render_height=render_height,
+        point_radius=point_radius,
         invert=invert,
         timer=timer,
         weight_solver=weight_solver,
         write_png=write_png,
         ghostscript=ghostscript,
+        dpi=dpi,
     )
