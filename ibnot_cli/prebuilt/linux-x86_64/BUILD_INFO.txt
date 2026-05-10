@@ -1,0 +1,7 @@
+artifact: ibnot_new_cli
+platform: linux-x86_64
+build_type: Release
+rpath: $ORIGIN/../../../.conda/ibnot_cli/lib
+env_prefix: .conda/ibnot_cli
+built_at_utc: 2026-05-10T00:03:03Z
+git_head: 728cf2b
