@@ -21,7 +21,19 @@ or via an explicit `IBNOT_CLI_BIN` environment variable.
 Install it into the same environment you use for the CLI:
 
 ```bash
-python -m pip install -e python
+python -m pip install -e "python[notebook]"
 ```
 
 Then import `ibnot_cli_wrapper` and call the subprocess helpers.
+
+Notebook workflow:
+
+- notebook path: `python/notebooks/bnot_quickstart.ipynb`
+- local generated outputs: `python/notebooks/_generated/`
+
+The notebook uses the shipped CLI through the wrapper and demonstrates three
+`512x512` fields at `1024` points:
+
+- uniform
+- left-to-right linear ramp
+- normalized 2D sine landscape

@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import math
+import numpy as np
 import os
 import shutil
 import subprocess
-import tempfile
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 
-NumberGrid = Sequence[Sequence[float | int]]
+NumberGrid = Sequence[Sequence[float | int]] | np.ndarray
 
 
 @dataclass
@@ -59,35 +59,50 @@ def find_default_executable(explicit: Optional[Path | str] = None) -> Path:
     )
 
 
-def _normalize_value(value: float | int) -> int:
-    if math.isnan(float(value)) or math.isinf(float(value)):
+def make_uniform(size: int = 512, value: float = 1.0) -> np.ndarray:
+    return np.full((size, size), np.clip(float(value), 0.0, 1.0), dtype=float)
+
+
+def make_linear_ramp(size: int = 512, left: float = 1.0, right: float = 0.0) -> np.ndarray:
+    row = np.linspace(float(left), float(right), int(size), dtype=float)
+    return np.tile(np.clip(row, 0.0, 1.0), (int(size), 1))
+
+
+def make_sine_landscape(size: int = 512, fx: float = 4.0, fy: float = 4.0) -> np.ndarray:
+    coords = np.linspace(0.0, 1.0, int(size), dtype=float)
+    xx, yy = np.meshgrid(coords, coords, indexing="xy")
+    field = 0.5 + 0.5 * np.sin(2.0 * np.pi * float(fx) * xx) * np.sin(2.0 * np.pi * float(fy) * yy)
+    return np.clip(field, 0.0, 1.0)
+
+
+def _as_normalized_array(pixels: NumberGrid) -> np.ndarray:
+    array = np.asarray(pixels, dtype=float)
+    if array.ndim != 2:
+        raise ValueError("pixels must be a 2D grid")
+    if array.size == 0:
+        raise ValueError("pixels must be a non-empty rectangular grid")
+    if not np.all(np.isfinite(array)):
         raise ValueError("PGM values must be finite")
 
-    numeric = float(value)
-    if 0.0 <= numeric <= 1.0:
-        numeric *= 255.0
-    numeric = max(0.0, min(255.0, numeric))
-    return int(round(numeric))
+    if float(array.min()) >= 0.0 and float(array.max()) <= 1.0:
+        return np.clip(array, 0.0, 1.0)
+
+    return np.clip(array / 255.0, 0.0, 1.0)
 
 
 def write_pgm(path: Path | str, pixels: NumberGrid) -> Path:
     output = Path(path)
-    rows = [list(row) for row in pixels]
-    if not rows or not rows[0]:
-        raise ValueError("pixels must be a non-empty rectangular grid")
-
-    width = len(rows[0])
-    for row in rows:
-        if len(row) != width:
-            raise ValueError("pixels must be rectangular")
+    array = _as_normalized_array(pixels)
+    height, width = array.shape
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as handle:
         handle.write("P2\n")
-        handle.write(f"{width} {len(rows)}\n")
+        handle.write(f"{width} {height}\n")
         handle.write("255\n")
-        for row in rows:
-            handle.write(" ".join(str(_normalize_value(value)) for value in row))
+        for row in array:
+            row_uint8 = np.rint(row * 255.0).astype(int)
+            handle.write(" ".join(str(int(value)) for value in row_uint8))
             handle.write("\n")
     return output
 
@@ -267,6 +282,45 @@ def run_from_array(
     return run_from_image(
         pgm_path,
         output_root,
+        output_stem,
+        executable=executable,
+        num_sites=num_sites,
+        seed=seed,
+        max_iters=max_iters,
+        max_newton_iters=max_newton_iters,
+        step_x=step_x,
+        step_w=step_w,
+        epsilon=epsilon,
+        invert=invert,
+        timer=timer,
+        weight_solver=weight_solver,
+        write_png=write_png,
+        ghostscript=ghostscript,
+    )
+
+
+def run_case(
+    pixels: NumberGrid,
+    output_dir: Path | str,
+    output_stem: str,
+    *,
+    executable: Optional[Path | str] = None,
+    num_sites: int = 1024,
+    seed: int = 7,
+    max_iters: int = 25,
+    max_newton_iters: int = 50,
+    step_x: float = 0.0,
+    step_w: float = 0.0,
+    epsilon: float = 1.0,
+    invert: bool = False,
+    timer: bool = False,
+    weight_solver: str = "newton",
+    write_png: bool = True,
+    ghostscript: str = "gs",
+) -> RunResult:
+    return run_from_array(
+        pixels,
+        output_dir,
         output_stem,
         executable=executable,
         num_sites=num_sites,

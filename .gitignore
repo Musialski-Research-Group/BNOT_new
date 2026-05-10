@@ -18,3 +18,5 @@ python/.venv/
 python/build/
 python/dist/
 python/.pytest_cache/
+python/notebooks/_generated/
+.ipynb_checkpoints/
