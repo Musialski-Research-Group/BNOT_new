@@ -1,7 +1,9 @@
 .DS_Store
 __pycache__/
+*.egg-info/
 
 ibnot_cli/build/
+ibnot_cli/build-*/
 ibnot_cli/CMakeCache.txt
 ibnot_cli/CMakeFiles/
 ibnot_cli/Testing/
@@ -11,3 +13,8 @@ ibnot_cli/compile_commands.json
 .conda/
 
 *.pyc
+
+python/.venv/
+python/build/
+python/dist/
+python/.pytest_cache/

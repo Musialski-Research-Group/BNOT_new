@@ -32,6 +32,12 @@ conda run --prefix ../.conda/ibnot_cli cmake -S . -B build -G Ninja -DCMAKE_PREF
 conda run --prefix ../.conda/ibnot_cli cmake --build build
 ```
 
+Run the built CLI:
+
+```bash
+conda run --prefix ../.conda/ibnot_cli ./build/ibnot_new_cli --help
+```
+
 Smoke test:
 
 ```bash
@@ -44,6 +50,46 @@ conda run --prefix ../.conda/ibnot_cli ./build/ibnot_new_cli \
   --output smoke_result.eps \
   --stats smoke_result.txt
 ```
+
+## Deployment
+
+This repo supports two sharing paths:
+
+- build from source inside the repo-local Conda environment
+- use the Linux prebuilt binary under `ibnot_cli/prebuilt/linux-x86_64/`
+
+### Prebuilt Linux Binary
+
+The prebuilt binary is intended for Linux/WSL users in the group who are willing
+to create the expected repo-local Conda environment but do not want to compile
+the CLI themselves.
+
+Expected setup:
+
+```bash
+cd ibnot_cli
+./setup_env.sh
+```
+
+Then run the bundled binary from the repo root:
+
+```bash
+./ibnot_cli/prebuilt/linux-x86_64/ibnot_new_cli --help
+```
+
+The current prebuilt package assumes the repo-local environment exists at
+`.conda/ibnot_cli`.
+
+### Inputs and Outputs
+
+- Inputs: grayscale `.pgm`, optional `.dat` initial points
+- Outputs: `.eps` and `.txt`; convert EPS to PNG separately if needed
+
+## Python Wrapper
+
+A separate Python wrapper project lives in [`python/`](python). It does not bind
+the CGAL core directly. It writes inputs, invokes the CLI as a subprocess, and
+parses the emitted stats.
 
 ## Notes
 

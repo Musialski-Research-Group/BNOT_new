@@ -9,3 +9,4 @@ dependencies:
   - cgal-cpp
   - gmp
   - mpfr
+  - patchelf
